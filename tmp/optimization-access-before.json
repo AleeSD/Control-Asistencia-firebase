@@ -1,0 +1,14 @@
+{
+  "personnel": {
+    "count": 38,
+    "sha256": "b6c71178018592f008694158f7891ae9c48615567d335a7bf8d9281aa32acf05"
+  },
+  "users": {
+    "count": 10,
+    "sha256": "fc11bfd60b2507eba9583616bb534f770f488bb3a5b9c8cca9e467a6df4a96d1"
+  },
+  "registrationRequests": {
+    "count": 10,
+    "sha256": "3b311c459b1d9f9f280a3ad950ce4d2fa257c64ab8bc0acc84910776d039b85d"
+  }
+}

@@ -1,0 +1,40 @@
+.worker-page, .worker-loading { min-height: 100dvh; background: #f3f6fb; display: flex; justify-content: center; align-items: flex-start; padding: 24px 14px; color: #1b2b46; }
+.worker-loading { align-items: center; font-size: 18px; }
+.worker-card { width: min(100%, 480px); background: #fff; border: 1px solid #e0e7f0; border-radius: 22px; padding: 27px; box-shadow: 0 12px 38px rgba(20, 44, 84, .08); }
+.worker-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 38px; font-size: 14px; letter-spacing: .025em; }
+.worker-brand > div { background: #286be4; color: white; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; }
+.worker-eyebrow { display: block; color: #286be4; font-weight: 800; letter-spacing: .11em; font-size: 11px; margin-bottom: 9px; }
+.worker-card h1 { font-size: clamp(25px, 6vw, 34px); margin: 0 0 10px; line-height: 1.15; letter-spacing: -.025em; }
+.worker-intro, .worker-card > p { color: #596b85; line-height: 1.5; margin: 0 0 22px; }
+.worker-date { text-transform: capitalize; }
+.worker-schedule { margin-top: -12px !important; margin-bottom: 17px !important; font-size: 13px; font-weight: 700; color: #405c85 !important; }
+.worker-form { display: grid; gap: 16px; margin-top: 22px; }
+.worker-form label { display: grid; gap: 7px; font-size: 14px; font-weight: 700; color: #263b59; }
+.worker-form input, .worker-form select, .worker-form textarea { width: 100%; min-height: 51px; border: 1px solid #cdd8e8; border-radius: 11px; padding: 11px 13px; font: inherit; font-size: 16px; color: #1b2b46; background: white; }
+.worker-form textarea { min-height: 90px; resize: vertical; }
+.worker-form input:focus, .worker-form select:focus, .worker-form textarea:focus { outline: 3px solid #cfe0ff; border-color: #286be4; }
+.worker-form-help { margin: 5px 0 -7px; font-size: 14px; color: #596b85; }
+.worker-mark-button { display: flex; justify-content: center; align-items: center; gap: 12px; min-height: 60px; width: 100%; background: #2567d9; color: #fff; border: 0; border-radius: 12px; padding: 14px 18px; font: inherit; font-size: 18px; font-weight: 800; cursor: pointer; box-shadow: 0 7px 18px rgba(37, 103, 217, .18); }
+.worker-mark-button:disabled { opacity: .65; cursor: default; box-shadow: none; }
+.worker-notice, .worker-warning { border-radius: 10px; padding: 12px 14px; margin-top: 14px; font-size: 14px; line-height: 1.4; }
+.worker-notice { color: #12553b; background: #e8f7ef; }
+.worker-warning { color: #7a3b12; background: #fff3e7; }
+.worker-text-button { background: none; border: none; padding: 10px 0; color: #2567d9; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.worker-center { text-align: center; padding-top: 28px; padding-bottom: 35px; }
+.worker-center .worker-brand { justify-content: center; }
+.worker-status-icon { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 20px; background: #eff5ff; color: #2567d9; }
+.worker-muted { font-size: 14px; }
+.worker-home .worker-brand { margin-bottom: 34px; }
+.worker-times { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 27px 0 19px; }
+.worker-times > div { background: #f3f6fb; border-radius: 13px; padding: 17px; display: grid; gap: 7px; }
+.worker-times span { font-size: 13px; color: #687a94; }
+.worker-times strong { font-size: 29px; }
+.worker-explain { display: flex; align-items: flex-start; gap: 7px; font-size: 13px; line-height: 1.4; margin: 15px 0 0 !important; }
+.worker-explain svg { flex: none; margin-top: 1px; color: #647fa8; }
+.worker-divider { border-top: 1px solid #e0e7f0; margin-top: 28px; padding-top: 8px; }
+.worker-incident-form { border-top: 1px solid #e0e7f0; padding-top: 18px; }
+.worker-incidents { border-top: 1px solid #e0e7f0; margin-top: 18px; padding-top: 18px; font-size: 14px; }
+.worker-incidents p { margin: 8px 0; color: #596b85; text-transform: capitalize; }
+.dni-dialog { padding: 26px; line-height: 1.6; }
+.worker-form input[readonly] { background: #f3f6fb; }
+@media (max-width: 520px) { .worker-page { padding: 0; background: white; } .worker-card { min-height: 100dvh; border: none; border-radius: 0; box-shadow: none; padding: 24px 20px 38px; } }

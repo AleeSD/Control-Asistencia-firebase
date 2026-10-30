@@ -1,0 +1,10 @@
+{
+  "indexes": [
+    { "collectionGroup": "marks", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "dayKey", "order": "DESCENDING" }] },
+    { "collectionGroup": "marks", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "personnelId", "order": "ASCENDING" }, { "fieldPath": "dayKey", "order": "DESCENDING" }] },
+    { "collectionGroup": "incidents", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "incidents", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "personnelId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "adjustments", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "dayKey", "order": "DESCENDING" }] }
+  ],
+  "fieldOverrides": []
+}

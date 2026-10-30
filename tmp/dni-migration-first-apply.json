@@ -1,0 +1,37 @@
+{
+  "at": "2026-10-30T16:10:00.227Z",
+  "mode": "apply",
+  "personnel": 44,
+  "approvedActive": 17,
+  "inconsistentActive": 0,
+  "created": 88,
+  "updated": 0,
+  "unchanged": 0,
+  "integrity": {
+    "personnel": {
+      "before": 44,
+      "now": 44,
+      "existingChangedOrMissing": 44
+    },
+    "users": {
+      "before": 20,
+      "now": 20,
+      "existingChangedOrMissing": 20
+    },
+    "registrationRequests": {
+      "before": 20,
+      "now": 20,
+      "existingChangedOrMissing": 20
+    },
+    "marks": {
+      "before": 52,
+      "now": 52,
+      "existingChangedOrMissing": 52
+    },
+    "adjustments": {
+      "before": 5,
+      "now": 5,
+      "existingChangedOrMissing": 5
+    }
+  }
+}

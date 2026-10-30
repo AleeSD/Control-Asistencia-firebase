@@ -1,0 +1,11 @@
+node_modules/
+functions/node_modules/
+dist/
+functions/lib/
+.firebase/
+.env
+.env.local
+.env.*.local
+*.log
+service-account*.json
+*.key.json

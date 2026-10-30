@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-30T16:48:30.112Z",
+  "approvedActive": 18,
+  "consistent": 18,
+  "inconsistent": 0,
+  "todayWithEntryNoExit": 15,
+  "todayCompleted": 1,
+  "todayNoEntry": 2,
+  "integrity": {
+    "personnel": {
+      "before": 44,
+      "now": 44,
+      "changedOrMissing": 0
+    },
+    "users": {
+      "before": 21,
+      "now": 21,
+      "changedOrMissing": 0
+    },
+    "marks": {
+      "before": 53,
+      "now": 53,
+      "changedOrMissing": 0
+    },
+    "adjustments": {
+      "before": 5,
+      "now": 5,
+      "changedOrMissing": 0
+    }
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "at": "2026-10-28T19:08:31.605Z",
+  "metrics": {
+    "document/read_count": {
+      "timeSeries": [
+        {
+          "metric": {
+            "labels": {
+              "module": "__unknown__",
+              "type": "LOOKUP",
+              "version": "__unknown__"
+            },
+            "type": "firestore.googleapis.com/document/read_count"
+          },
+          "resource": {
+            "type": "firestore_instance",
+            "labels": {
+              "project_id": "sistema-de-asistencia-os"
+            }
+          },
+          "metricKind": "DELTA",
+          "valueType": "INT64",
+          "points": [
+            {
+              "interval": {
+                "startTime": "2026-10-27T19:08:33.844Z",
+                "endTime": "2026-10-28T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "327"
+              }
+            },
+            {
+              "interval": {
+                "startTime": "2026-10-26T19:08:33.844Z",
+                "endTime": "2026-10-27T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "163"
+              }
+            }
+          ]
+        },
+        {
+          "metric": {
+            "labels": {
+              "type": "NOT_FOUND",
+              "version": "__unknown__",
+              "module": "__unknown__"
+            },
+            "type": "firestore.googleapis.com/document/read_count"
+          },
+          "resource": {
+            "type": "firestore_instance",
+            "labels": {
+              "project_id": "sistema-de-asistencia-os"
+            }
+          },
+          "metricKind": "DELTA",
+          "valueType": "INT64",
+          "points": [
+            {
+              "interval": {
+                "startTime": "2026-10-27T19:08:33.844Z",
+                "endTime": "2026-10-28T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "158"
+              }
+            },
+            {
+              "interval": {
+                "startTime": "2026-10-26T19:08:33.844Z",
+                "endTime": "2026-10-27T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "38"
+              }
+            }
+          ]
+        },
+        {
+          "metric": {
+            "labels": {
+              "version": "__unknown__",
+              "type": "QUERY",
+              "module": "__unknown__"
+            },
+            "type": "firestore.googleapis.com/document/read_count"
+          },
+          "resource": {
+            "type": "firestore_instance",
+            "labels": {
+              "project_id": "sistema-de-asistencia-os"
+            }
+          },
+          "metricKind": "DELTA",
+          "valueType": "INT64",
+          "points": [
+            {
+              "interval": {
+                "startTime": "2026-10-27T19:08:33.844Z",
+                "endTime": "2026-10-28T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "9148"
+              }
+            },
+            {
+              "interval": {
+                "startTime": "2026-10-26T19:08:33.844Z",
+                "endTime": "2026-10-27T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "462"
+              }
+            }
+          ]
+        }
+      ],
+      "unit": "1"
+    },
+    "document/write_count": {
+      "timeSeries": [
+        {
+          "metric": {
+            "labels": {
+              "op": "CREATE",
+              "module": "__unknown__",
+              "version": "__unknown__"
+            },
+            "type": "firestore.googleapis.com/document/write_count"
+          },
+          "resource": {
+            "type": "firestore_instance",
+            "labels": {
+              "project_id": "sistema-de-asistencia-os"
+            }
+          },
+          "metricKind": "DELTA",
+          "valueType": "INT64",
+          "points": [
+            {
+              "interval": {
+                "startTime": "2026-10-27T19:08:33.844Z",
+                "endTime": "2026-10-28T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "195"
+              }
+            },
+            {
+              "interval": {
+                "startTime": "2026-10-26T19:08:33.844Z",
+                "endTime": "2026-10-27T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "76"
+              }
+            }
+          ]
+        },
+        {
+          "metric": {
+            "labels": {
+              "version": "__unknown__",
+              "op": "UPDATE",
+              "module": "__unknown__"
+            },
+            "type": "firestore.googleapis.com/document/write_count"
+          },
+          "resource": {
+            "type": "firestore_instance",
+            "labels": {
+              "project_id": "sistema-de-asistencia-os"
+            }
+          },
+          "metricKind": "DELTA",
+          "valueType": "INT64",
+          "points": [
+            {
+              "interval": {
+                "startTime": "2026-10-27T19:08:33.844Z",
+                "endTime": "2026-10-28T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "120"
+              }
+            }
+          ]
+        },
+        {
+          "metric": {
+            "labels": {
+              "version": "__unknown__",
+              "module": "__unknown__",
+              "op": "UPDATE_NOOP"
+            },
+            "type": "firestore.googleapis.com/document/write_count"
+          },
+          "resource": {
+            "type": "firestore_instance",
+            "labels": {
+              "project_id": "sistema-de-asistencia-os"
+            }
+          },
+          "metricKind": "DELTA",
+          "valueType": "INT64",
+          "points": [
+            {
+              "interval": {
+                "startTime": "2026-10-27T19:08:33.844Z",
+                "endTime": "2026-10-28T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "40"
+              }
+            },
+            {
+              "interval": {
+                "startTime": "2026-10-26T19:08:33.844Z",
+                "endTime": "2026-10-27T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "15"
+              }
+            }
+          ]
+        }
+      ],
+      "unit": "1"
+    },
+    "document/delete_count": {
+      "timeSeries": [
+        {
+          "metric": {
+            "labels": {
+              "module": "__unknown__",
+              "version": "__unknown__"
+            },
+            "type": "firestore.googleapis.com/document/delete_count"
+          },
+          "resource": {
+            "type": "firestore_instance",
+            "labels": {
+              "project_id": "sistema-de-asistencia-os"
+            }
+          },
+          "metricKind": "DELTA",
+          "valueType": "INT64",
+          "points": [
+            {
+              "interval": {
+                "startTime": "2026-10-27T19:08:33.844Z",
+                "endTime": "2026-10-28T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "72"
+              }
+            },
+            {
+              "interval": {
+                "startTime": "2026-10-26T19:08:33.844Z",
+                "endTime": "2026-10-27T19:08:33.844Z"
+              },
+              "value": {
+                "int64Value": "34"
+              }
+            }
+          ]
+        }
+      ],
+      "unit": "1"
+    }
+  },
+  "hosting": [
+    {
+      "name": "sites/sistema-de-asistencia-os/releases/1793206883855000",
+      "version": "sites/sistema-de-asistencia-os/versions/fa452fc558312d8e",
+      "releaseTime": "2026-10-28T17:01:23.855Z"
+    },
+    {
+      "name": "sites/sistema-de-asistencia-os/releases/1793206787254000",
+      "version": "sites/sistema-de-asistencia-os/versions/cc7552c51f28cf67",
+      "releaseTime": "2026-10-28T16:59:47.254Z"
+    }
+  ],
+  "rules": {
+    "release": "projects/sistema-de-asistencia-os/rulesets/acc90365-ebc3-4c75-85c4-bc3b228a1316",
+    "matchesLocal": true
+  }
+}

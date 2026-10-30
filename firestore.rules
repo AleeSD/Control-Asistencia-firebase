@@ -1,0 +1,378 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function gmail() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower().matches('^[^@]+@(gmail|googlemail)[.]com$');
+    }
+    function anonymous() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'anonymous'; }
+    function hasDniSession() { return anonymous() && exists(/databases/$(database)/documents/workerSessions/$(request.auth.uid)); }
+    function me() { return hasDniSession() ? get(/databases/$(database)/documents/workerSessions/$(request.auth.uid)) : get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function approvedPerson(dni) {
+      let p = get(/databases/$(database)/documents/personnel/$(dni)).data;
+      let u = get(/databases/$(database)/documents/users/$(p.approvedUid)).data;
+      return p.active == true && p.approvedUid is string && u.active == true && u.role == 'trabajador' && u.personnelId == dni;
+    }
+    function sessionWorkerActive() {
+      let session = me().data;
+      let p = get(/databases/$(database)/documents/personnel/$(session.personnelId)).data;
+      return session.createdAt + duration.value(12, 'h') > request.time
+        && approvedPerson(session.personnelId)
+        && session.createdAt >= get(/databases/$(database)/documents/users/$(p.approvedUid)).data.get('createdAt', timestamp.date(2000, 1, 1));
+    }
+    function legacyActive() {
+      return gmail() && me().data.active == true
+        && (me().data.email == request.auth.token.email.lower()
+          || (exists(/databases/$(database)/documents/privateIdentities/$(request.auth.uid))
+            && get(/databases/$(database)/documents/privateIdentities/$(request.auth.uid)).data.email == request.auth.token.email.lower()));
+    }
+    function legacyWorkerActive() {
+      let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      let p = get(/databases/$(database)/documents/personnel/$(u.personnelId)).data;
+      return u.role == 'trabajador' && u.active == true && p.active == true && p.approvedUid == request.auth.uid;
+    }
+    function workerActive() { return anonymous() && (hasDniSession() ? sessionWorkerActive() : legacyWorkerActive()); }
+    function active() { return legacyActive() || workerActive(); }
+    function manager() { return legacyActive() && me().data.role == 'encargado'; }
+    function auditAfter(id, action, target) {
+      let item = getAfter(/databases/$(database)/documents/audit/$(id)).data;
+      return item.action == action && item.actorId == request.auth.uid && item.targetId == target && item.at == request.time;
+    }
+    function pad(n) { return n < 10 ? '0' + string(n) : string(n); }
+    function limaDay(t) {
+      let local = t - duration.value(5, 'h');
+      return string(local.year()) + '-' + pad(local.month()) + '-' + pad(local.day());
+    }
+    function scheduleOK(d) {
+      return d.scheduleStart is string && d.scheduleStart.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && (!('scheduleEnd' in d) || d.scheduleEnd == null || (d.scheduleEnd is string
+          && d.scheduleEnd.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && d.scheduleEnd > d.scheduleStart))
+        && d.graceMinutes is int && d.graceMinutes >= 0 && d.graceMinutes <= 120;
+    }
+    function endOf(d) { return 'scheduleEnd' in d ? d.scheduleEnd : null; }
+    function locationOK(loc) {
+      return loc is map && (
+        (loc.keys().hasOnly(['status','lat','lng','accuracyMeters'])
+          && loc.keys().hasAll(['status','lat','lng','accuracyMeters'])
+          && loc.status == 'captured' && loc.lat is number && loc.lng is number && loc.accuracyMeters is number
+          && loc.lat >= -90 && loc.lat <= 90 && loc.lng >= -180 && loc.lng <= 180
+          && loc.accuracyMeters >= 0 && loc.accuracyMeters <= 100000)
+      );
+    }
+
+    // Minimal pre-login directory. Exact reads only; DNI-only access does not verify the holder.
+    function directoryMatches(d, p) { return d.keys().hasOnly(['active','approved']) && d.active == p.active && d.approved == (p.approvedUid is string); }
+    function panelMatches(d, p, dni) {
+      return d.keys().hasOnly(['dni','displayName','active','scheduleStart','scheduleEnd','graceMinutes'])
+        && d.dni == dni && d.displayName == p.displayName && d.active == p.active
+        && d.scheduleStart == p.scheduleStart && d.scheduleEnd == endOf(p) && d.graceMinutes == p.graceMinutes;
+    }
+    function projectionsAfter(dni) {
+      let p = getAfter(/databases/$(database)/documents/personnel/$(dni)).data;
+      return directoryMatches(getAfter(/databases/$(database)/documents/workerDirectory/$(dni)).data, p)
+        && panelMatches(getAfter(/databases/$(database)/documents/workerPanels/$(dni)).data, p, dni);
+    }
+    // Legacy roster documents may not have projections until the additive migration.
+    function projectionsIfMigrated(dni) { return !exists(/databases/$(database)/documents/workerDirectory/$(dni)) || projectionsAfter(dni); }
+    match /workerDirectory/{dni} {
+      allow get: if manager() || (anonymous() && dni.matches('^[0-9]{8}$'));
+      allow list: if manager();
+      allow create, update: if manager() && directoryMatches(request.resource.data, getAfter(/databases/$(database)/documents/personnel/$(dni)).data);
+      allow delete: if manager() && !existsAfter(/databases/$(database)/documents/personnel/$(dni));
+    }
+    match /workerPanels/{dni} {
+      allow get: if manager() || (workerActive() && me().data.personnelId == dni);
+      allow list: if manager();
+      allow create, update: if manager() && panelMatches(request.resource.data, getAfter(/databases/$(database)/documents/personnel/$(dni)).data, dni);
+      allow delete: if manager() && !existsAfter(/databases/$(database)/documents/personnel/$(dni));
+    }
+    match /workerSessions/{uid} {
+      allow get: if manager() || (anonymous() && request.auth.uid == uid);
+      allow list: if manager();
+      allow create: if anonymous() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['personnelId','createdAt'])
+        && request.resource.data.personnelId is string && request.resource.data.personnelId.matches('^[0-9]{8}$')
+        && request.resource.data.createdAt == request.time && approvedPerson(request.resource.data.personnelId);
+      allow update: if false;
+      allow delete: if manager();
+    }
+
+    // Solo la consola de Firebase puede crear el vínculo privado del primer encargado.
+    match /privateIdentities/{userId} { allow read, write: if false; }
+
+    function personnelOK(dni) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['dni','firstNames','lastNameP','lastNameM','displayName','companies','occupation','location','active','scheduleStart','scheduleEnd','graceMinutes','approvedUid','contactPhone','contactEmail','createdAt','updatedAt','updatedBy','lastAuditId'])
+        && d.keys().hasAll(['dni','firstNames','lastNameP','lastNameM','displayName','companies','occupation','location','active','scheduleStart','graceMinutes','approvedUid','contactPhone','contactEmail','createdAt','updatedAt','updatedBy','lastAuditId'])
+        && dni.matches('^[0-9]{8}$') && d.dni == dni
+        && d.firstNames is string && d.firstNames.size() >= 2 && d.firstNames.size() <= 100
+        && d.lastNameP is string && d.lastNameP.size() >= 2 && d.lastNameP.size() <= 100
+        && d.lastNameM is string && d.lastNameM.size() <= 100
+        && d.displayName is string && d.displayName.size() >= 3 && d.displayName.size() <= 200
+        && d.companies is list && d.companies.size() > 0 && d.companies.size() <= 2 && d.companies.hasOnly(['OS','SLI'])
+        && d.occupation in ['CONDUCTOR DE CAMION','AUXILIAR DE TRANSPORTE','COORDINADOR','MONITOREO']
+        && d.location is string && d.location.size() <= 100
+        && d.active is bool && scheduleOK(d)
+        && (d.approvedUid == null || d.approvedUid is string)
+        && d.contactPhone is string && d.contactPhone.size() <= 25
+        && d.contactEmail is string && d.contactEmail.size() <= 150
+        && d.updatedAt == request.time && d.updatedBy == request.auth.uid && d.lastAuditId is string;
+    }
+    function personnelAudit(dni) {
+      let item = getAfter(/databases/$(database)/documents/audit/$(request.resource.data.lastAuditId)).data;
+      return item.actorId == request.auth.uid && item.at == request.time
+        && ((item.action in ['roster_upsert','worker_access_removed'] && item.targetId == dni)
+          || (item.action == 'registration_approved' && item.targetId == request.resource.data.approvedUid && resource.data.approvedUid == null));
+    }
+
+    match /personnel/{dni} {
+      allow get: if manager() || (anonymous() && me().data.personnelId == dni && resource.data.approvedUid == request.auth.uid);
+      allow list: if manager();
+      allow create: if manager() && personnelOK(dni) && request.resource.data.createdAt == request.time
+        && request.resource.data.approvedUid == null && personnelAudit(dni);
+      allow update: if manager() && personnelOK(dni) && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstNames','lastNameP','lastNameM','displayName','companies','occupation','location','active','scheduleStart','scheduleEnd','graceMinutes','approvedUid','contactPhone','contactEmail','updatedAt','updatedBy','lastAuditId'])
+        && personnelAudit(dni) && projectionsIfMigrated(dni)
+        && (getAfter(/databases/$(database)/documents/audit/$(request.resource.data.lastAuditId)).data.action != 'worker_access_removed'
+          || (resource.data.approvedUid is string && request.resource.data.approvedUid == null
+            && resource.data.lastAuditId is string
+            && request.resource.data.lastAuditId == 'access_remove_' + resource.data.lastAuditId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvedUid','updatedAt','updatedBy','lastAuditId'])
+            && !existsAfter(/databases/$(database)/documents/users/$(resource.data.approvedUid))
+            && !existsAfter(/databases/$(database)/documents/registrationRequests/$(resource.data.approvedUid))));
+      allow delete: if manager() && resource.data.active == false && resource.data.approvedUid == null
+        && resource.data.lastAuditId is string
+        && auditAfter('roster_delete_' + resource.data.lastAuditId, 'roster_delete', dni)
+        && !existsAfter(/databases/$(database)/documents/workerDirectory/$(dni)) && !existsAfter(/databases/$(database)/documents/workerPanels/$(dni));
+    }
+
+    function requestOK(userId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['dni','firstNames','surnames','contactPhone','contactEmail','status','createdAt','updatedAt','resolvedAt','resolvedBy','resolutionNote','lastAuditId'])
+        && d.keys().hasAll(['dni','firstNames','surnames','contactPhone','contactEmail','status','createdAt'])
+        && userId == request.auth.uid && d.dni is string && d.dni.matches('^[0-9]{8}$')
+        && exists(/databases/$(database)/documents/personnel/$(d.dni))
+        && get(/databases/$(database)/documents/personnel/$(d.dni)).data.active == true
+        && d.firstNames is string && d.firstNames.size() >= 2 && d.firstNames.size() <= 100
+        && d.surnames is string && d.surnames.size() >= 2 && d.surnames.size() <= 150
+        && d.contactPhone is string && d.contactPhone.size() <= 25
+        && d.contactEmail is string && d.contactEmail.size() <= 150
+        && (d.contactPhone.size() > 0 || d.contactEmail.size() > 0);
+    }
+
+    match /registrationRequests/{userId} {
+      allow get: if manager() || (anonymous() && request.auth.uid == userId);
+      allow list: if manager();
+      allow create: if anonymous() && requestOK(userId)
+        && request.resource.data.keys().hasOnly(['dni','firstNames','surnames','contactPhone','contactEmail','status','createdAt'])
+        && request.resource.data.status == 'pendiente' && request.resource.data.createdAt == request.time;
+      allow update: if (anonymous() && request.auth.uid == userId && resource.data.status == 'rechazada'
+          && requestOK(userId) && request.resource.data.status == 'pendiente'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dni','firstNames','surnames','contactPhone','contactEmail','status','updatedAt'])
+          && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.updatedAt == request.time)
+        || (manager() && resource.data.status == 'pendiente'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','resolvedAt','resolvedBy','resolutionNote','lastAuditId'])
+          && request.resource.data.status in ['aprobada','rechazada']
+          && request.resource.data.resolvedAt == request.time && request.resource.data.resolvedBy == request.auth.uid
+          && request.resource.data.resolutionNote is string && request.resource.data.resolutionNote.size() > 0
+          && request.resource.data.lastAuditId is string
+          && auditAfter(request.resource.data.lastAuditId,
+            request.resource.data.status == 'aprobada' ? 'registration_approved' : 'registration_rejected', userId)
+          && (request.resource.data.status == 'rechazada'
+            || (getAfter(/databases/$(database)/documents/personnel/$(resource.data.dni)).data.approvedUid == userId
+              && getAfter(/databases/$(database)/documents/users/$(userId)).data.createdAt == request.time)));
+      allow delete: if manager() && resource.data.status == 'aprobada'
+        && get(/databases/$(database)/documents/users/$(userId)).data.personnelId == resource.data.dni
+        && get(/databases/$(database)/documents/personnel/$(resource.data.dni)).data.approvedUid == userId
+        && getAfter(/databases/$(database)/documents/personnel/$(resource.data.dni)).data.approvedUid == null
+        && auditAfter('access_remove_' + get(/databases/$(database)/documents/personnel/$(resource.data.dni)).data.lastAuditId,
+          'worker_access_removed', resource.data.dni);
+    }
+
+    match /invites/{email} {
+      allow get: if gmail() && (request.auth.token.email.lower() == email || manager());
+      allow list: if manager();
+      allow create: if manager()
+        && request.resource.data.keys().hasOnly(['email','displayName','role','active','scheduleStart','graceMinutes','invitedBy','createdAt'])
+        && request.resource.data.keys().hasAll(['email','displayName','role','active','scheduleStart','graceMinutes','invitedBy','createdAt'])
+        && request.resource.data.email == email && email.matches('^[^@]+@(gmail|googlemail)[.]com$')
+        && request.resource.data.displayName is string && request.resource.data.displayName.size() > 0 && request.resource.data.displayName.size() <= 100
+        && request.resource.data.role in ['trabajador','encargado'] && request.resource.data.active == true
+        && scheduleOK(request.resource.data) && request.resource.data.invitedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && auditAfter('invite_' + email, 'invite_user', email);
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if (gmail() && (request.auth.uid == userId || manager()))
+        || (anonymous() && request.auth.uid == userId);
+      allow list: if manager();
+      allow create: if (gmail() && userId == request.auth.uid
+        && exists(/databases/$(database)/documents/invites/$(request.auth.token.email.lower()))
+        && get(/databases/$(database)/documents/invites/$(request.auth.token.email.lower())).data.active == true
+        && request.resource.data.keys().hasOnly(['email','displayName','role','active','scheduleStart','graceMinutes','createdAt','invitedBy'])
+        && request.resource.data.keys().hasAll(['email','displayName','role','active','scheduleStart','graceMinutes','createdAt','invitedBy'])
+        && request.resource.data.email == request.auth.token.email.lower()
+        && request.resource.data.displayName == get(/databases/$(database)/documents/invites/$(request.resource.data.email)).data.displayName
+        && request.resource.data.role == get(/databases/$(database)/documents/invites/$(request.resource.data.email)).data.role
+        && request.resource.data.scheduleStart == get(/databases/$(database)/documents/invites/$(request.resource.data.email)).data.scheduleStart
+        && request.resource.data.graceMinutes == get(/databases/$(database)/documents/invites/$(request.resource.data.email)).data.graceMinutes
+        && request.resource.data.invitedBy == get(/databases/$(database)/documents/invites/$(request.resource.data.email)).data.invitedBy
+        && request.resource.data.active == true && request.resource.data.createdAt == request.time
+        && auditAfter('claim_' + userId, 'claim_access', userId))
+        || (manager()
+          && request.resource.data.keys().hasOnly(['personnelId','displayName','role','active','scheduleStart','graceMinutes','createdAt','approvedBy'])
+          && request.resource.data.keys().hasAll(['personnelId','displayName','role','active','scheduleStart','graceMinutes','createdAt','approvedBy'])
+          && request.resource.data.personnelId is string
+          && request.resource.data.role == 'trabajador' && request.resource.data.active == true
+          && scheduleOK(request.resource.data) && request.resource.data.createdAt == request.time
+          && request.resource.data.approvedBy == request.auth.uid
+          && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.personnelId)).data.approvedUid == userId
+          && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.personnelId)).data.displayName == request.resource.data.displayName
+          && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.personnelId)).data.scheduleStart == request.resource.data.scheduleStart
+          && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.personnelId)).data.graceMinutes == request.resource.data.graceMinutes
+          && getAfter(/databases/$(database)/documents/registrationRequests/$(userId)).data.status == 'aprobada');
+      allow update: if manager() && (userId != request.auth.uid || request.resource.data.active == true)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['scheduleStart','graceMinutes','active','updatedAt','updatedBy','lastAuditId'])
+        && scheduleOK(request.resource.data) && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.lastAuditId is string
+        && auditAfter(request.resource.data.lastAuditId, 'update_user', userId);
+      allow delete: if manager() && resource.data.role == 'trabajador' && resource.data.personnelId is string
+        && get(/databases/$(database)/documents/personnel/$(resource.data.personnelId)).data.approvedUid == userId
+        && getAfter(/databases/$(database)/documents/personnel/$(resource.data.personnelId)).data.approvedUid == null
+        && auditAfter('access_remove_' + get(/databases/$(database)/documents/personnel/$(resource.data.personnelId)).data.lastAuditId,
+          'worker_access_removed', resource.data.personnelId);
+    }
+
+    function workerMarkOK(markId) {
+      let d = request.resource.data;
+      let dni = me().data.personnelId;
+      let p = get(/databases/$(database)/documents/personnel/$(dni)).data;
+      return d.keys().hasOnly(['userId','personnelId','displayName','type','dayKey','occurredAt','scheduleStart','scheduleEnd','graceMinutes','source','location'])
+        && d.personnelId == dni && d.displayName == p.displayName && d.scheduleStart == p.scheduleStart
+        && d.scheduleEnd == endOf(p) && d.graceMinutes == p.graceMinutes
+        && markId == dni + '_' + d.dayKey + '_' + d.type
+        && (d.type == 'entrada' || exists(/databases/$(database)/documents/marks/$(dni + '_' + d.dayKey + '_entrada')));
+    }
+    function managerMarkOK(markId) {
+      let d = request.resource.data;
+      let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return d.keys().hasOnly(['userId','displayName','type','dayKey','occurredAt','scheduleStart','scheduleEnd','graceMinutes','source','location'])
+        && d.displayName == u.displayName && d.scheduleStart == u.scheduleStart && d.scheduleEnd == endOf(u) && d.graceMinutes == u.graceMinutes
+        && markId == request.auth.uid + '_' + d.dayKey + '_' + d.type
+        && (d.type == 'entrada' || exists(/databases/$(database)/documents/marks/$(request.auth.uid + '_' + d.dayKey + '_entrada')));
+    }
+    match /marks/{markId} {
+      allow get: if active() && (manager() || markId.matches('^' + (anonymous() ? me().data.personnelId : request.auth.uid) + '_[0-9]{4}-[0-9]{2}-[0-9]{2}_(entrada|salida)$'));
+      allow list: if active() && (manager() || (anonymous() && resource.data.personnelId == me().data.personnelId) || resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid
+        && request.resource.data.type in ['entrada','salida'] && request.resource.data.dayKey == limaDay(request.time)
+        && request.resource.data.occurredAt == request.time && request.resource.data.source == 'web' && locationOK(request.resource.data.location)
+        && (anonymous() ? (workerActive() && workerMarkOK(markId)) : (legacyActive() && managerMarkOK(markId)))
+        && auditAfter('mark_' + markId, 'mark_attendance', markId);
+      allow update, delete: if false;
+    }
+
+    function incidentIdentityOK() {
+      let d = request.resource.data;
+      let id = anonymous() ? me().data.personnelId : request.auth.uid;
+      let expected = id + '_' + d.dayKey + '_' + d.type;
+      let name = anonymous() ? get(/databases/$(database)/documents/personnel/$(id)).data.displayName : me().data.displayName;
+      return d.displayName == name
+        && d.keys().hasOnly(anonymous() ? ['userId','personnelId','displayName','dayKey','type','markId','proposedAt','reason','status','createdAt'] : ['userId','displayName','dayKey','type','markId','proposedAt','reason','status','createdAt'])
+        && (!anonymous() || d.personnelId == id)
+        && d.markId == (exists(/databases/$(database)/documents/marks/$(expected)) ? expected : null);
+    }
+    match /incidents/{incidentId} {
+      allow get, list: if active() && (resource.data.userId == request.auth.uid || manager()
+        || (anonymous() && resource.data.personnelId == me().data.personnelId));
+      allow create: if active()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.type in ['entrada','salida'] && request.resource.data.proposedAt is timestamp
+        && request.resource.data.proposedAt <= request.time
+        && request.resource.data.proposedAt >= request.time - duration.value(90, 'd')
+        && request.resource.data.dayKey == limaDay(request.resource.data.proposedAt)
+        && incidentIdentityOK()
+        && request.resource.data.reason is string && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 1000
+        && request.resource.data.status == 'pendiente' && request.resource.data.createdAt == request.time
+        && auditAfter('incident_' + incidentId, 'submit_incident', incidentId);
+      allow update: if manager() && resource.data.status == 'pendiente'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','resolvedBy','resolutionNote','resolvedAt'])
+        && request.resource.data.status in ['aprobada','rechazada']
+        && request.resource.data.resolvedBy == request.auth.uid && request.resource.data.resolvedAt == request.time
+        && request.resource.data.resolutionNote is string && request.resource.data.resolutionNote.size() > 0 && request.resource.data.resolutionNote.size() <= 500
+        && auditAfter('resolve_' + incidentId, 'resolve_incident', incidentId)
+        && (request.resource.data.status == 'rechazada' || getAfter(/databases/$(database)/documents/adjustments/$(('personnelId' in resource.data ? resource.data.personnelId : resource.data.userId) + '_' + resource.data.dayKey + '_' + resource.data.type)).data.incidentId == incidentId);
+      allow delete: if false;
+    }
+
+    match /adjustments/{adjustmentId} {
+      allow get, list: if active() && (resource.data.userId == request.auth.uid || manager()
+        || (anonymous() && resource.data.personnelId == me().data.personnelId));
+      allow create: if manager()
+        && request.resource.data.keys().hasOnly(['incidentId','userId','personnelId','dayKey','type','originalMarkId','correctedAt','reason','approvedBy','approvalNote','approvedAt'])
+        && request.resource.data.keys().hasAll(['incidentId','userId','dayKey','type','originalMarkId','correctedAt','reason','approvedBy','approvalNote','approvedAt'])
+        && adjustmentId == ('personnelId' in request.resource.data ? request.resource.data.personnelId : request.resource.data.userId) + '_' + request.resource.data.dayKey + '_' + request.resource.data.type
+        && getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.status == 'aprobada'
+        && getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.resolvedAt == request.time
+        && request.resource.data.userId == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.userId
+        && (('personnelId' in request.resource.data) == ('personnelId' in getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data))
+        && (!('personnelId' in request.resource.data) || request.resource.data.personnelId == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.personnelId)
+        && request.resource.data.dayKey == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.dayKey
+        && request.resource.data.type == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.type
+        && request.resource.data.originalMarkId == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.markId
+        && request.resource.data.correctedAt == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.proposedAt
+        && request.resource.data.reason == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.reason
+        && request.resource.data.approvedBy == request.auth.uid
+        && request.resource.data.approvalNote == getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.resolutionNote
+        && request.resource.data.approvedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /audit/{auditId} {
+      allow get, list: if manager();
+      allow create: if (gmail() || anonymous())
+        && request.resource.data.keys().hasOnly(['action','actorId','targetId','at'])
+        && request.resource.data.keys().hasAll(['action','actorId','targetId','at'])
+        && request.resource.data.actorId == request.auth.uid && request.resource.data.at == request.time
+        && ((request.resource.data.action == 'claim_access' && auditId == 'claim_' + request.auth.uid
+              && request.resource.data.targetId == request.auth.uid
+              && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.createdAt == request.time)
+          || (request.resource.data.action == 'invite_user' && manager()
+              && auditId == 'invite_' + request.resource.data.targetId
+              && getAfter(/databases/$(database)/documents/invites/$(request.resource.data.targetId)).data.createdAt == request.time)
+          || (request.resource.data.action == 'update_user' && manager()
+              && getAfter(/databases/$(database)/documents/users/$(request.resource.data.targetId)).data.updatedAt == request.time
+              && getAfter(/databases/$(database)/documents/users/$(request.resource.data.targetId)).data.lastAuditId == auditId)
+          || (request.resource.data.action == 'mark_attendance' && active()
+              && auditId == 'mark_' + request.resource.data.targetId
+              && getAfter(/databases/$(database)/documents/marks/$(request.resource.data.targetId)).data.occurredAt == request.time)
+          || (request.resource.data.action == 'submit_incident' && active()
+              && auditId == 'incident_' + request.resource.data.targetId
+              && getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.targetId)).data.createdAt == request.time)
+          || (request.resource.data.action == 'resolve_incident' && manager()
+              && auditId == 'resolve_' + request.resource.data.targetId
+              && getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.targetId)).data.resolvedAt == request.time)
+          || (request.resource.data.action == 'roster_upsert' && manager()
+              && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.lastAuditId == auditId
+              && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.updatedAt == request.time)
+          || (request.resource.data.action == 'worker_access_removed' && manager()
+              && get(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.approvedUid is string
+              && auditId == 'access_remove_' + get(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.lastAuditId
+              && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.lastAuditId == auditId
+              && getAfter(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.approvedUid == null)
+          || (request.resource.data.action == 'roster_delete' && manager()
+              && get(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.active == false
+              && auditId == 'roster_delete_' + get(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.lastAuditId
+              && !existsAfter(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)))
+          || (request.resource.data.action in ['registration_approved','registration_rejected'] && manager()
+              && getAfter(/databases/$(database)/documents/registrationRequests/$(request.resource.data.targetId)).data.lastAuditId == auditId
+              && getAfter(/databases/$(database)/documents/registrationRequests/$(request.resource.data.targetId)).data.resolvedAt == request.time));
+      allow update, delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
