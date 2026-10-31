@@ -1,40 +1,57 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function gmail() {
-      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'
-        && request.auth.token.email_verified == true
-        && request.auth.token.email.lower().matches('^[^@]+@(gmail|googlemail)[.]com$');
-    }
+    function googleAccount() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com' && request.auth.token.email_verified == true; }
+    function passwordProvider() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'password'; }
+    function passwordMonitor() { return passwordProvider() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+      && me().data.get('role','') == 'monitor' && me().data.get('authMethod','') == 'password'
+      && me().data.get('email','') == request.auth.token.email.lower(); }
     function anonymous() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'anonymous'; }
     function hasDniSession() { return anonymous() && exists(/databases/$(database)/documents/workerSessions/$(request.auth.uid)); }
     function me() { return hasDniSession() ? get(/databases/$(database)/documents/workerSessions/$(request.auth.uid)) : get(/databases/$(database)/documents/users/$(request.auth.uid)); }
     function approvedPerson(dni) {
-      let p = get(/databases/$(database)/documents/personnel/$(dni)).data;
-      let u = get(/databases/$(database)/documents/users/$(p.approvedUid)).data;
-      return p.active == true && p.approvedUid is string && u.active == true && u.role == 'trabajador' && u.personnelId == dni;
+      let p = exists(/databases/$(database)/documents/personnel/$(dni)) ? get(/databases/$(database)/documents/personnel/$(dni)).data : {};
+      let u = p.get('approvedUid', null) is string && exists(/databases/$(database)/documents/users/$(p.approvedUid)) ? get(/databases/$(database)/documents/users/$(p.approvedUid)).data : {};
+      return p != null && u != null && p.get('active', false) == true
+        && u.get('active', false) == true && u.get('role', '') == 'trabajador' && u.get('personnelId', null) == dni;
     }
     function sessionWorkerActive() {
       let session = me().data;
-      let p = get(/databases/$(database)/documents/personnel/$(session.personnelId)).data;
-      return session.createdAt + duration.value(12, 'h') > request.time
+      let p = session != null && session.get('personnelId', null) is string && exists(/databases/$(database)/documents/personnel/$(session.personnelId)) ? get(/databases/$(database)/documents/personnel/$(session.personnelId)).data : {};
+      return session != null && p != null && session.get('createdAt', null) is timestamp
+        && session.createdAt + duration.value(12, 'h') > request.time
         && approvedPerson(session.personnelId)
         && session.createdAt >= get(/databases/$(database)/documents/users/$(p.approvedUid)).data.get('createdAt', timestamp.date(2000, 1, 1));
     }
     function legacyActive() {
-      return gmail() && me().data.active == true
-        && (me().data.email == request.auth.token.email.lower()
+      return (googleAccount() || passwordMonitor()) && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && me().data.get('active', false) == true
+        && (me().data.get('email', '') == request.auth.token.email.lower()
           || (exists(/databases/$(database)/documents/privateIdentities/$(request.auth.uid))
             && get(/databases/$(database)/documents/privateIdentities/$(request.auth.uid)).data.email == request.auth.token.email.lower()));
     }
     function legacyWorkerActive() {
-      let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      let p = get(/databases/$(database)/documents/personnel/$(u.personnelId)).data;
-      return u.role == 'trabajador' && u.active == true && p.active == true && p.approvedUid == request.auth.uid;
+      let u = exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
+      let p = u.get('personnelId', null) is string && exists(/databases/$(database)/documents/personnel/$(u.personnelId)) ? get(/databases/$(database)/documents/personnel/$(u.personnelId)).data : {};
+      return u != null && p != null && u.get('role', '') == 'trabajador' && u.get('active', false) == true
+        && p.get('active', false) == true && p.get('approvedUid', null) == request.auth.uid;
     }
     function workerActive() { return anonymous() && (hasDniSession() ? sessionWorkerActive() : legacyWorkerActive()); }
     function active() { return legacyActive() || workerActive(); }
     function manager() { return legacyActive() && me().data.role == 'encargado'; }
+    function staff() { return legacyActive() && me().data.role in ['encargado','monitor']; }
+    function monitor() { return legacyActive() && me().data.role == 'monitor'; }
+    function approvalTransition(dni) {
+      let before = get(/databases/$(database)/documents/personnel/$(dni)).data;
+      let after = getAfter(/databases/$(database)/documents/personnel/$(dni)).data;
+      let item = getAfter(/databases/$(database)/documents/registrationRequests/$(after.approvedUid)).data;
+      return before.active == true && before.approvedUid == null && after.approvedUid is string
+        && after.diff(before).affectedKeys().hasOnly(['approvedUid','contactPhone','contactEmail','updatedAt','updatedBy','lastAuditId'])
+        && item.dni == dni && item.status == 'aprobada' && item.resolvedAt == request.time && item.resolvedBy == request.auth.uid
+        && after.contactPhone == item.contactPhone && after.contactEmail == item.contactEmail
+        && after.updatedAt == request.time && after.updatedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(after.approvedUid)).data.createdAt == request.time
+        && auditAfter(after.lastAuditId, 'registration_approved', after.approvedUid);
+    }
     function auditAfter(id, action, target) {
       let item = getAfter(/databases/$(database)/documents/audit/$(id)).data;
       return item.action == action && item.actorId == request.auth.uid && item.targetId == target && item.at == request.time;
@@ -76,15 +93,15 @@ service cloud.firestore {
     // Legacy roster documents may not have projections until the additive migration.
     function projectionsIfMigrated(dni) { return !exists(/databases/$(database)/documents/workerDirectory/$(dni)) || projectionsAfter(dni); }
     match /workerDirectory/{dni} {
-      allow get: if manager() || (anonymous() && dni.matches('^[0-9]{8}$'));
-      allow list: if manager();
-      allow create, update: if manager() && directoryMatches(request.resource.data, getAfter(/databases/$(database)/documents/personnel/$(dni)).data);
+      allow get: if staff() || (anonymous() && dni.matches('^[0-9]{8}$'));
+      allow list: if staff();
+      allow create, update: if staff() && directoryMatches(request.resource.data, getAfter(/databases/$(database)/documents/personnel/$(dni)).data);
       allow delete: if manager() && !existsAfter(/databases/$(database)/documents/personnel/$(dni));
     }
     match /workerPanels/{dni} {
-      allow get: if manager() || (workerActive() && me().data.personnelId == dni);
-      allow list: if manager();
-      allow create, update: if manager() && panelMatches(request.resource.data, getAfter(/databases/$(database)/documents/personnel/$(dni)).data, dni);
+      allow get: if staff() || (workerActive() && me().data.personnelId == dni);
+      allow list: if staff();
+      allow create, update: if staff() && panelMatches(request.resource.data, getAfter(/databases/$(database)/documents/personnel/$(dni)).data, dni);
       allow delete: if manager() && !existsAfter(/databases/$(database)/documents/personnel/$(dni));
     }
     match /workerSessions/{uid} {
@@ -127,8 +144,9 @@ service cloud.firestore {
     }
 
     match /personnel/{dni} {
-      allow get: if manager() || (anonymous() && me().data.personnelId == dni && resource.data.approvedUid == request.auth.uid);
-      allow list: if manager();
+      allow get: if staff() || (anonymous() && (hasDniSession() || exists(/databases/$(database)/documents/users/$(request.auth.uid)))
+        && me().data.get('personnelId', null) == dni && resource != null && resource.data.get('approvedUid', null) == request.auth.uid);
+      allow list: if staff();
       allow create: if manager() && personnelOK(dni) && request.resource.data.createdAt == request.time
         && request.resource.data.approvedUid == null && personnelAudit(dni);
       allow update: if manager() && personnelOK(dni) && request.resource.data.createdAt == resource.data.createdAt
@@ -140,7 +158,7 @@ service cloud.firestore {
             && request.resource.data.lastAuditId == 'access_remove_' + resource.data.lastAuditId
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvedUid','updatedAt','updatedBy','lastAuditId'])
             && !existsAfter(/databases/$(database)/documents/users/$(resource.data.approvedUid))
-            && !existsAfter(/databases/$(database)/documents/registrationRequests/$(resource.data.approvedUid))));
+            && !existsAfter(/databases/$(database)/documents/registrationRequests/$(resource.data.approvedUid)))) || (monitor() && approvalTransition(dni) && projectionsAfter(dni));
       allow delete: if manager() && resource.data.active == false && resource.data.approvedUid == null
         && resource.data.lastAuditId is string
         && auditAfter('roster_delete_' + resource.data.lastAuditId, 'roster_delete', dni)
@@ -162,8 +180,8 @@ service cloud.firestore {
     }
 
     match /registrationRequests/{userId} {
-      allow get: if manager() || (anonymous() && request.auth.uid == userId);
-      allow list: if manager();
+      allow get: if staff() || (anonymous() && request.auth.uid == userId);
+      allow list: if staff();
       allow create: if anonymous() && requestOK(userId)
         && request.resource.data.keys().hasOnly(['dni','firstNames','surnames','contactPhone','contactEmail','status','createdAt'])
         && request.resource.data.status == 'pendiente' && request.resource.data.createdAt == request.time;
@@ -171,7 +189,7 @@ service cloud.firestore {
           && requestOK(userId) && request.resource.data.status == 'pendiente'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dni','firstNames','surnames','contactPhone','contactEmail','status','updatedAt'])
           && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.updatedAt == request.time)
-        || (manager() && resource.data.status == 'pendiente'
+        || (staff() && resource.data.status == 'pendiente'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','resolvedAt','resolvedBy','resolutionNote','lastAuditId'])
           && request.resource.data.status in ['aprobada','rechazada']
           && request.resource.data.resolvedAt == request.time && request.resource.data.resolvedBy == request.auth.uid
@@ -191,14 +209,14 @@ service cloud.firestore {
     }
 
     match /invites/{email} {
-      allow get: if gmail() && (request.auth.token.email.lower() == email || manager());
+      allow get: if googleAccount() && (request.auth.token.email.lower() == email || manager());
       allow list: if manager();
       allow create: if manager()
         && request.resource.data.keys().hasOnly(['email','displayName','role','active','scheduleStart','graceMinutes','invitedBy','createdAt'])
         && request.resource.data.keys().hasAll(['email','displayName','role','active','scheduleStart','graceMinutes','invitedBy','createdAt'])
-        && request.resource.data.email == email && email.matches('^[^@]+@(gmail|googlemail)[.]com$')
+        && request.resource.data.email == email && (email.matches('^[^@]+@(gmail|googlemail)[.]com$') || (request.resource.data.role == 'monitor' && email.matches('^[^@]+@[^@]+[.][^@]+$')))
         && request.resource.data.displayName is string && request.resource.data.displayName.size() > 0 && request.resource.data.displayName.size() <= 100
-        && request.resource.data.role in ['trabajador','encargado'] && request.resource.data.active == true
+        && request.resource.data.role in ['trabajador','encargado','monitor'] && request.resource.data.active == true
         && scheduleOK(request.resource.data) && request.resource.data.invitedBy == request.auth.uid
         && request.resource.data.createdAt == request.time
         && auditAfter('invite_' + email, 'invite_user', email);
@@ -206,10 +224,10 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if (gmail() && (request.auth.uid == userId || manager()))
+      allow get: if ((googleAccount() || passwordProvider()) && (request.auth.uid == userId || manager() || (staff() && (!exists(/databases/$(database)/documents/users/$(userId)) || resource.data.role == 'trabajador'))))
         || (anonymous() && request.auth.uid == userId);
-      allow list: if manager();
-      allow create: if (gmail() && userId == request.auth.uid
+      allow list: if manager() || (staff() && resource.data.role == 'trabajador');
+      allow create: if (googleAccount() && userId == request.auth.uid
         && exists(/databases/$(database)/documents/invites/$(request.auth.token.email.lower()))
         && get(/databases/$(database)/documents/invites/$(request.auth.token.email.lower())).data.active == true
         && request.resource.data.keys().hasOnly(['email','displayName','role','active','scheduleStart','graceMinutes','createdAt','invitedBy'])
@@ -222,10 +240,11 @@ service cloud.firestore {
         && request.resource.data.invitedBy == get(/databases/$(database)/documents/invites/$(request.resource.data.email)).data.invitedBy
         && request.resource.data.active == true && request.resource.data.createdAt == request.time
         && auditAfter('claim_' + userId, 'claim_access', userId))
-        || (manager()
+        || (staff()
           && request.resource.data.keys().hasOnly(['personnelId','displayName','role','active','scheduleStart','graceMinutes','createdAt','approvedBy'])
           && request.resource.data.keys().hasAll(['personnelId','displayName','role','active','scheduleStart','graceMinutes','createdAt','approvedBy'])
           && request.resource.data.personnelId is string
+          && (manager() || getAfter(/databases/$(database)/documents/registrationRequests/$(userId)).data.resolvedAt == request.time)
           && request.resource.data.role == 'trabajador' && request.resource.data.active == true
           && scheduleOK(request.resource.data) && request.resource.data.createdAt == request.time
           && request.resource.data.approvedBy == request.auth.uid
@@ -251,7 +270,7 @@ service cloud.firestore {
       let d = request.resource.data;
       let dni = me().data.personnelId;
       let p = get(/databases/$(database)/documents/personnel/$(dni)).data;
-      return d.keys().hasOnly(['userId','personnelId','displayName','type','dayKey','occurredAt','scheduleStart','scheduleEnd','graceMinutes','source','location'])
+      return d.keys().hasOnly(['userId','personnelId','displayName','type','dayKey','occurredAt','scheduleStart','scheduleEnd','graceMinutes','source','location','service'])
         && d.personnelId == dni && d.displayName == p.displayName && d.scheduleStart == p.scheduleStart
         && d.scheduleEnd == endOf(p) && d.graceMinutes == p.graceMinutes
         && markId == dni + '_' + d.dayKey + '_' + d.type
@@ -260,18 +279,19 @@ service cloud.firestore {
     function managerMarkOK(markId) {
       let d = request.resource.data;
       let u = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return d.keys().hasOnly(['userId','displayName','type','dayKey','occurredAt','scheduleStart','scheduleEnd','graceMinutes','source','location'])
+      return d.keys().hasOnly(['userId','displayName','type','dayKey','occurredAt','scheduleStart','scheduleEnd','graceMinutes','source','location','service'])
         && d.displayName == u.displayName && d.scheduleStart == u.scheduleStart && d.scheduleEnd == endOf(u) && d.graceMinutes == u.graceMinutes
         && markId == request.auth.uid + '_' + d.dayKey + '_' + d.type
         && (d.type == 'entrada' || exists(/databases/$(database)/documents/marks/$(request.auth.uid + '_' + d.dayKey + '_entrada')));
     }
     match /marks/{markId} {
-      allow get: if active() && (manager() || markId.matches('^' + (anonymous() ? me().data.personnelId : request.auth.uid) + '_[0-9]{4}-[0-9]{2}-[0-9]{2}_(entrada|salida)$'));
-      allow list: if active() && (manager() || (anonymous() && resource.data.personnelId == me().data.personnelId) || resource.data.userId == request.auth.uid);
+      allow get: if active() && (staff() || markId.matches('^' + (anonymous() ? me().data.personnelId : request.auth.uid) + '_[0-9]{4}-[0-9]{2}-[0-9]{2}_(entrada|salida)$'));
+      allow list: if active() && (staff() || (anonymous() && resource.data.personnelId == me().data.personnelId) || resource.data.userId == request.auth.uid);
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid
         && request.resource.data.type in ['entrada','salida'] && request.resource.data.dayKey == limaDay(request.time)
+        && (!('service' in request.resource.data) || request.resource.data['service'] in ['SPSA HD','Transferencia','Refrigerado','MASS','Paquetería','Giddings','TPSA','SPS Home Delivery','Mass'])
         && request.resource.data.occurredAt == request.time && request.resource.data.source == 'web' && locationOK(request.resource.data.location)
-        && (anonymous() ? (workerActive() && workerMarkOK(markId)) : (legacyActive() && managerMarkOK(markId)))
+        && (anonymous() ? (workerActive() && workerMarkOK(markId)) : (legacyActive() && me().data.role != 'monitor' && managerMarkOK(markId)))
         && auditAfter('mark_' + markId, 'mark_attendance', markId);
       allow update, delete: if false;
     }
@@ -287,9 +307,9 @@ service cloud.firestore {
         && d.markId == (exists(/databases/$(database)/documents/marks/$(expected)) ? expected : null);
     }
     match /incidents/{incidentId} {
-      allow get, list: if active() && (resource.data.userId == request.auth.uid || manager()
+      allow get, list: if active() && (resource.data.userId == request.auth.uid || staff()
         || (anonymous() && resource.data.personnelId == me().data.personnelId));
-      allow create: if active()
+      allow create: if active() && (!(googleAccount() || passwordProvider()) || me().data.role != 'monitor')
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.type in ['entrada','salida'] && request.resource.data.proposedAt is timestamp
         && request.resource.data.proposedAt <= request.time
@@ -299,7 +319,7 @@ service cloud.firestore {
         && request.resource.data.reason is string && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 1000
         && request.resource.data.status == 'pendiente' && request.resource.data.createdAt == request.time
         && auditAfter('incident_' + incidentId, 'submit_incident', incidentId);
-      allow update: if manager() && resource.data.status == 'pendiente'
+      allow update: if staff() && resource.data.status == 'pendiente'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','resolvedBy','resolutionNote','resolvedAt'])
         && request.resource.data.status in ['aprobada','rechazada']
         && request.resource.data.resolvedBy == request.auth.uid && request.resource.data.resolvedAt == request.time
@@ -310,9 +330,9 @@ service cloud.firestore {
     }
 
     match /adjustments/{adjustmentId} {
-      allow get, list: if active() && (resource.data.userId == request.auth.uid || manager()
+      allow get, list: if active() && (resource.data.userId == request.auth.uid || staff()
         || (anonymous() && resource.data.personnelId == me().data.personnelId));
-      allow create: if manager()
+      allow create: if staff()
         && request.resource.data.keys().hasOnly(['incidentId','userId','personnelId','dayKey','type','originalMarkId','correctedAt','reason','approvedBy','approvalNote','approvedAt'])
         && request.resource.data.keys().hasAll(['incidentId','userId','dayKey','type','originalMarkId','correctedAt','reason','approvedBy','approvalNote','approvedAt'])
         && adjustmentId == ('personnelId' in request.resource.data ? request.resource.data.personnelId : request.resource.data.userId) + '_' + request.resource.data.dayKey + '_' + request.resource.data.type
@@ -334,7 +354,7 @@ service cloud.firestore {
 
     match /audit/{auditId} {
       allow get, list: if manager();
-      allow create: if (gmail() || anonymous())
+      allow create: if (googleAccount() || passwordProvider() || anonymous())
         && request.resource.data.keys().hasOnly(['action','actorId','targetId','at'])
         && request.resource.data.keys().hasAll(['action','actorId','targetId','at'])
         && request.resource.data.actorId == request.auth.uid && request.resource.data.at == request.time
@@ -353,7 +373,7 @@ service cloud.firestore {
           || (request.resource.data.action == 'submit_incident' && active()
               && auditId == 'incident_' + request.resource.data.targetId
               && getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.targetId)).data.createdAt == request.time)
-          || (request.resource.data.action == 'resolve_incident' && manager()
+          || (request.resource.data.action == 'resolve_incident' && staff()
               && auditId == 'resolve_' + request.resource.data.targetId
               && getAfter(/databases/$(database)/documents/incidents/$(request.resource.data.targetId)).data.resolvedAt == request.time)
           || (request.resource.data.action == 'roster_upsert' && manager()
@@ -368,7 +388,7 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.active == false
               && auditId == 'roster_delete_' + get(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)).data.lastAuditId
               && !existsAfter(/databases/$(database)/documents/personnel/$(request.resource.data.targetId)))
-          || (request.resource.data.action in ['registration_approved','registration_rejected'] && manager()
+          || (request.resource.data.action in ['registration_approved','registration_rejected'] && staff()
               && getAfter(/databases/$(database)/documents/registrationRequests/$(request.resource.data.targetId)).data.lastAuditId == auditId
               && getAfter(/databases/$(database)/documents/registrationRequests/$(request.resource.data.targetId)).data.resolvedAt == request.time));
       allow update, delete: if false;

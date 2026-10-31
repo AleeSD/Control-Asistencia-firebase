@@ -15,5 +15,7 @@
 .marks-toolbar label { display: grid; gap: 5px; color: #445b78; font-size: 12px; font-weight: 700; }
 .marks-toolbar .record-count { margin-left: auto; }
 .marks-toolbar .search-box { flex: 1; min-width: 200px; }
+.service-filter { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: #445b78; }
+.service-filter select { min-height: 38px; max-width: 100%; border: 1px solid #d3deed; border-radius: 8px; padding: 7px 10px; background: #fff; color: #1b2b46; font: inherit; }
 .panel-heading p { line-height: 1.6; }
 @media (max-width: 640px) { .report-toolbar, .report-period-controls, .report-downloads { align-items: stretch; flex-direction: column; width: 100%; } .report-mode { width: 100%; } .report-mode button { flex: 1; } .report-downloads button { justify-content: center; } }

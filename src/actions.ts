@@ -5,15 +5,15 @@ import type { MarkLocation, MarkType, Profile } from "./types";
 const database = () => { if (!db) throw new Error("Firebase no está configurado."); return db; };
 const identity = () => {
   const user = auth?.currentUser;
-  if (!user?.email || !/@(gmail|googlemail)\.com$/i.test(user.email)) throw new Error("Ingresa con tu cuenta Gmail personal.");
+  if (!user?.email || !(user.providerData.some(provider => provider.providerId === "password") || (user.emailVerified && user.providerData.some(provider => provider.providerId === "google.com")))) throw new Error("Ingresa con tu cuenta autorizada.");
   return { uid: user.uid, email: user.email.toLowerCase() };
 };
 const todayKey = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-const requireProfile = async (role?: "encargado") => {
+const requireProfile = async (role?: "encargado" | "staff") => {
   const { uid } = identity();
   const snap = await getDoc(doc(database(), "users", uid));
   const profile = snap.data() as Profile | undefined;
-  if (!profile?.active || (role && profile.role !== role)) throw new Error("Tu cuenta no tiene permiso para esta acción.");
+  if (!profile?.active || (role && (role === "staff" ? !["encargado","monitor"].includes(profile.role) : profile.role !== role))) throw new Error("Tu cuenta no tiene permiso para esta acción.");
   return { uid, profile };
 };
 const validMark = (value: unknown): MarkType => {
@@ -27,6 +27,11 @@ export async function call<T = unknown>(name: string, raw?: unknown): Promise<T>
   const { uid, email } = identity();
 
   if (name === "claimAccess") {
+    if (auth?.currentUser?.providerData.some(provider => provider.providerId === "password")) {
+      const profile = (await getDoc(doc(store,"users",uid))).data();
+      if (!profile?.active || profile.role !== "monitor" || profile.authMethod !== "password" || profile.email !== email) throw new Error("Esta cuenta no tiene acceso de monitoreo.");
+      return {ok:true} as T;
+    }
     await runTransaction(store, async tx => {
       const userRef = doc(store, "users", uid);
       const inviteRef = doc(store, "invites", email);
@@ -52,8 +57,8 @@ export async function call<T = unknown>(name: string, raw?: unknown): Promise<T>
     const role = data.role;
     const scheduleStart = String(data.scheduleStart ?? "");
     const graceMinutes = Number(data.graceMinutes);
-    if (!/^[^\s@]+@(gmail|googlemail)\.com$/.test(invitedEmail) || !displayName || displayName.length > 100 ||
-      (role !== "trabajador" && role !== "encargado") || !/^([01]\d|2[0-3]):[0-5]\d$/.test(scheduleStart) ||
+    if (!(role === "monitor" ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/ : /^[^\s@]+@(gmail|googlemail)\.com$/).test(invitedEmail) || !displayName || displayName.length > 100 ||
+      (role !== "trabajador" && role !== "encargado" && role !== "monitor") || !/^([01]\d|2[0-3]):[0-5]\d$/.test(scheduleStart) ||
       !Number.isInteger(graceMinutes) || graceMinutes < 0 || graceMinutes > 120) throw new Error("Revisa los datos de la invitación.");
     const batch = writeBatch(store);
     batch.set(doc(store, "invites", invitedEmail), { email: invitedEmail, displayName, role, scheduleStart, graceMinutes, active: true, invitedBy: uid, createdAt: serverTimestamp() });
@@ -119,7 +124,7 @@ export async function call<T = unknown>(name: string, raw?: unknown): Promise<T>
   }
 
   if (name === "resolveIncident") {
-    await requireProfile("encargado");
+    await requireProfile("staff");
     const id = String(data.id ?? "");
     const decision = data.decision;
     const note = String(data.note ?? "").trim();

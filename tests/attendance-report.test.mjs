@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import test from "node:test";
 import assert from "node:assert/strict";
-const code = ts.transpileModule(readFileSync("src/attendanceReport.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+const servicesCode=ts.transpileModule(readFileSync('src/services.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+const servicesUrl='data:text/javascript;base64,'+Buffer.from(servicesCode).toString('base64');
+const code = ts.transpileModule(readFileSync("src/attendanceReport.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace('"./services"',JSON.stringify(servicesUrl));
 const { buildAttendanceSummary: summary, enrichMark, statusLabel } = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
 const stamp = value => ({ toDate: () => new Date(value) });
 const person = (dni, extras = {}) => ({ dni, displayName: "Persona " + dni, active: true, companies: ["OS"], scheduleStart: "06:10", graceMinutes: 0, ...extras });
@@ -36,4 +38,12 @@ test("corrección sin original, salida sin entrada e histórico de baja siguen v
 test("más de 500 marcas no se recortan en el resumen", () => {
   const marks = Array.from({length:601}, (_,i) => mark(undefined, "entrada", "06:00", {id:"m"+i, personnelId:String(10000000+i)}));
   assert.equal(summary(marks, [], [], []).length, 601);
+});
+
+test("servicio preserva históricos vacíos y toma la salida nueva sin alterar la entrada", () => {
+ const entry=mark();const exit=mark(undefined,'salida','17:00',{service:'Mass'});
+ assert.equal(summary([entry],[],[],[])[0].service,'');
+ assert.equal(summary([entry,exit],[],[],[])[0].service,'MASS');
+ assert.equal(entry.service,undefined);
+ assert.equal(summary([{...entry,service:'Transferencia'},exit],[],[],[])[0].service,'Transferencia / MASS');
 });

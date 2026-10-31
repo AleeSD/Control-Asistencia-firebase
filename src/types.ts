@@ -1,6 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 
-export type Role = "trabajador" | "encargado";
+export type Role = "trabajador" | "encargado" | "monitor";
 export type MarkType = "entrada" | "salida";
 export type Profile = {
   id: string; email?: string; displayName: string; role: Role; active: boolean;
@@ -9,6 +9,7 @@ export type Profile = {
 };
 export type MarkLocation = { status: "captured"; lat: number; lng: number; accuracyMeters: number } | { status: "unavailable" };
 export type Mark = {
+  service?: string;
   id: string; userId: string; displayName: string; type: MarkType; dayKey: string;
   occurredAt?: Timestamp; scheduleStart: string; scheduleEnd?: string | null; graceMinutes: number; personnelId?: string;
   location?: MarkLocation;

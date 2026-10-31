@@ -1,3 +1,4 @@
+import { SERVICES, validService } from "./services";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { onSnapshot, collection, doc, limit, orderBy, query, where } from "firebase/firestore";
@@ -11,7 +12,7 @@ import "./worker.css";
 const hour = (date?: Date) => date ? new Intl.DateTimeFormat("es-PE", {timeZone:"America/Lima",hour:"2-digit",minute:"2-digit",hour12:false}).format(date) : "—";
 const messageOf = (error: unknown) => (error as {code?:string})?.code === "permission-denied" ? "No se pudo validar tu acceso. Vuelve a ingresar tu DNI o consulta con Monitoreo." : (error as {message?:string})?.message ?? "No pudimos validar tu DNI. Intenta nuevamente.";
 
-export default function WorkerPortal({onManagerLogin, managerLoginBusy, managerLoginError}: {onManagerLogin:()=>void; managerLoginBusy:boolean; managerLoginError:string}) {
+export default function WorkerPortal({onManagerLogin, onMonitorLogin, managerLoginBusy, managerLoginError}: {onManagerLogin:()=>void; onMonitorLogin:()=>void; managerLoginBusy:boolean; managerLoginError:string}) {
   const [dni,setDni]=useState(""); const [result,setResult]=useState<DniResult|null>(null);
   const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [unknown,setUnknown]=useState(false);
   const [request,setRequest]=useState<RegistrationRequest|null|undefined>(undefined);
@@ -36,13 +37,19 @@ export default function WorkerPortal({onManagerLogin, managerLoginBusy, managerL
   </div></div>;
   return <div className="worker-page"><div className="worker-card"><WorkerBrand/><span className="worker-eyebrow">MI ASISTENCIA</span><h1>Ingresa tu DNI</h1><p className="worker-intro">Si ya tienes aprobación, ingresa para marcar tu entrada o salida.</p>
     <form className="worker-form" onSubmit={e=>{e.preventDefault();if (!managerLoginBusy && !busy) void enter();}}><label>DNI<input autoFocus required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} autoComplete="off" value={dni} onChange={e=>setDni(e.target.value.replace(/\D/g,""))} placeholder="8 dígitos"/></label><button className="worker-mark-button" disabled={busy || managerLoginBusy}>{busy?"Comprobando…":"Ingresar"}<ArrowRight size={23}/></button></form>
-    {error&&<p className="worker-warning" role="alert">{error}</p>}<p className="worker-muted">¿Primera vez? Ingresa tu DNI para solicitar la aprobación.</p><button className="worker-text-button" disabled={busy || managerLoginBusy} onClick={onManagerLogin}>{managerLoginBusy ? "Abriendo Google…" : "Acceso del encargado"}</button>{managerLoginError && <p className="worker-warning" role="alert">{managerLoginError}</p>}
+    {error&&<p className="worker-warning" role="alert">{error}</p>}<p className="worker-muted">¿Primera vez? Ingresa tu DNI para solicitar la aprobación.</p>
+    <div className="worker-access-links">
+      <button className="worker-text-button" disabled={busy || managerLoginBusy} onClick={onManagerLogin}>{managerLoginBusy ? "Abriendo Google…" : "Acceso del encargado"}</button>
+      {managerLoginError && <p className="worker-warning" role="alert">{managerLoginError}</p>}
+      <button className="worker-text-button" disabled={busy || managerLoginBusy} onClick={onMonitorLogin}>Acceso OSMonitor con contraseña</button>
+    </div>
     {unknown&&<div className="modal-backdrop"><div className="modal dni-dialog" role="alertdialog" aria-modal="true" aria-labelledby="unknown-title" aria-describedby="unknown-help"><h2 id="unknown-title">DNI no registrado</h2><p id="unknown-help">No encontramos tu DNI en el registro del personal de la empresa. Revisa que esté bien escrito. Si es correcto, comunícate con el coordinador de tu operación o con el área de Monitoreo para que revisen tus datos.</p><button autoFocus className="worker-mark-button" onClick={()=>setUnknown(false)}>Revisar DNI</button></div></div>}
   </div></div>;
 }
 
 function WorkerHome({uid,dni,onLeave}:{uid:string;dni:string;onLeave:()=>void}) {
   const [person,setPerson]=useState<WorkerPerson|null|undefined>(undefined);
+  const [service,setService]=useState(""); const [serviceDay,setServiceDay]=useState(""); const [choosingService,setChoosingService]=useState(true);
   const [expired,setExpired]=useState(false);const [marksReady,setMarksReady]=useState(false);
   const [marks,setMarks]=useState<Mark[]>([]);const [incidents,setIncidents]=useState<Incident[]>([]);
   const [today,setToday]=useState(limaDay());const [busy,setBusy]=useState(false);const [notice,setNotice]=useState("");
@@ -54,15 +61,17 @@ function WorkerHome({uid,dni,onLeave}:{uid:string;dni:string;onLeave:()=>void}) 
   useEffect(()=>{if(!db||!person?.active||expired||!showIncident)return;return onSnapshot(query(collection(db,"incidents"),where("personnelId","==",dni),orderBy("createdAt","desc"),limit(3)),snap=>setIncidents(snap.docs.map(d=>({id:d.id,...d.data()} as Incident))),cause=>setNotice(messageOf(cause)));},[dni,uid,person?.active,expired,showIncident]);
   useEffect(()=>{const timer=setInterval(()=>setToday(limaDay()),60000);return()=>clearInterval(timer);},[]);
   const entry=marks.find(m=>m.dayKey===today&&m.type==="entrada"),departure=marks.find(m=>m.dayKey===today&&m.type==="salida");const nextType=entry?"salida":"entrada";const label=entry?"Marcar salida":"Marcar entrada";
-  async function mark(){if(!person||departure||busy||!marksReady||expired)return;setBusy(true);setLocationError("");try{const location=await getMarkLocation();await markWorkerAttendance(profile,person,nextType,location);setShowLocationPrompt(false);setNotice((nextType==="entrada"?"Entrada":"Salida")+" registrada correctamente con ubicación.");}catch(error){setLocationError(messageOf(error));}finally{setBusy(false);}}
+  async function mark(){if(!person||departure||busy||!marksReady||expired||serviceDay!==today||!validService(service))return;setBusy(true);setLocationError("");try{const location=await getMarkLocation();await markWorkerAttendance(profile,person,nextType,location,service);setShowLocationPrompt(false);setNotice((nextType==="entrada"?"Entrada":"Salida")+" registrada correctamente con ubicación.");}catch(error){setLocationError(messageOf(error));}finally{setBusy(false);}}
   if(person===undefined)return <div className="worker-loading">Cargando tu asistencia…</div>;
   if(!person?.active||expired)return <div className="worker-page"><div className="worker-card"><WorkerBrand/><h1>Vuelve a ingresar</h1><p>Tu sesión terminó o tu acceso cambió. Ingresa tu DNI nuevamente. Si no puedes acceder, comunícate con Monitoreo.</p><button className="worker-mark-button" onClick={onLeave}>Ingresar DNI</button></div></div>;
+  if(choosingService || serviceDay!==today)return <div className="worker-page"><div className="worker-card"><WorkerBrand/><span className="worker-eyebrow">SERVICIO DEL DÍA</span><h1>¿Qué servicio brindas hoy?</h1><p className="worker-intro">{person.displayName} · {new Intl.DateTimeFormat("es-PE",{timeZone:"America/Lima",dateStyle:"long"}).format(new Date())}</p><form className="worker-form" onSubmit={e=>{e.preventDefault();if(validService(service)){setServiceDay(today);setChoosingService(false);}}}><label>Servicio<select required value={serviceDay && serviceDay!==today ? "" : service} onChange={e=>{setService(e.target.value);setServiceDay(today);}}><option value="" disabled>Selecciona un servicio</option>{SERVICES.map(item=><option key={item} value={item}>{item}</option>)}</select></label><button className="worker-mark-button" disabled={!validService(service) || Boolean(serviceDay && serviceDay!==today)}>Continuar<ArrowRight size={23}/></button></form><button className="worker-text-button" onClick={onLeave}>Volver al DNI</button></div></div>;
   return <div className="worker-page"><main className="worker-card worker-home">
     <WorkerBrand /><button className="worker-text-button" disabled={busy} onClick={onLeave}>Salir</button>
     <span className="worker-eyebrow">MI ASISTENCIA</span>
     <h1>Hola, {person.displayName.split(" ")[0]}</h1>
     <p className="worker-date">{new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", weekday: "long", day: "numeric", month: "long" }).format(new Date())}</p>
     <p className="worker-schedule">Entrada prevista: {person.scheduleStart} · Salida: {person.scheduleEnd || "horario variable"}</p>
+    <p className="worker-service">Servicio: <strong>{service}</strong> <button className="worker-text-button" disabled={busy} onClick={()=>setChoosingService(true)}>Cambiar servicio</button></p>
     <div className="worker-times"><div><span>Entrada</span><strong>{hour(entry?.occurredAt?.toDate())}</strong></div><div><span>Salida</span><strong>{hour(departure?.occurredAt?.toDate())}</strong></div></div>
     <button className="worker-mark-button" disabled={busy || !marksReady || Boolean(departure)} onClick={() => { setLocationError(""); setShowLocationPrompt(true); void mark(); }}>
       {busy ? "Registrando…" : departure ? "Jornada completada" : label}

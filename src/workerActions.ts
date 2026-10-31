@@ -1,3 +1,4 @@
+import { validService } from "./services";
 import { collection, doc, getDoc, serverTimestamp, setDoc, Timestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { workerAuth as auth, workerDb as db } from "./firebase";
 import type { WorkerPerson } from "./dniAccess";
@@ -57,15 +58,16 @@ export function getMarkLocation(): Promise<Extract<MarkLocation, { status: "capt
   });
 }
 
-export async function markWorkerAttendance(profile: Profile, person: WorkerPerson, type: MarkType, location: Extract<MarkLocation, { status: "captured" }>) {
+export async function markWorkerAttendance(profile: Profile, person: WorkerPerson, type: MarkType, location: Extract<MarkLocation, { status: "captured" }>, service: string) {
   const user = worker();
   if (!profile.personnelId || !profile.active || !person.active || person.dni !== profile.personnelId) throw new Error("Tu acceso no está autorizado.");
+  if (!validService(service)) throw new Error("Selecciona el servicio que brindas hoy.");
   const dayKey = limaDay();
   const id = `${profile.personnelId}_${dayKey}_${type}`;
   const batch = writeBatch(store());
   batch.set(doc(store(), "marks", id), {
     userId: user.uid, personnelId: profile.personnelId, displayName: person.displayName,
-    type, dayKey, occurredAt: serverTimestamp(), scheduleStart: person.scheduleStart,
+    type, dayKey, service, occurredAt: serverTimestamp(), scheduleStart: person.scheduleStart,
     scheduleEnd: person.scheduleEnd ?? null, graceMinutes: person.graceMinutes, source: "web", location
   });
   batch.set(doc(store(), "audit", `mark_${id}`), { action: "mark_attendance", actorId: user.uid, targetId: id, at: serverTimestamp() });

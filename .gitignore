@@ -3,6 +3,7 @@ functions/node_modules/
 dist/
 functions/lib/
 .firebase/
+tmp/
 .env
 .env.local
 .env.*.local

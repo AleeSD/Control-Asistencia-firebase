@@ -1,0 +1,11 @@
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+const code=ts.transpileModule(readFileSync('src/services.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+const {serviceMatches,summaryServiceMatches,SERVICES,validService,canonicalService}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
+test('all services includes historical blank marks',()=>{for(const s of [undefined,'','Mass','Transferencia'])assert(serviceMatches(s,'all'))});
+test('one service excludes other services and blank marks',()=>{assert(serviceMatches('Mass','Mass'));assert(!serviceMatches(undefined,'Mass'));assert(!serviceMatches('Transferencia','Mass'))});
+test('no service selects only blank marks',()=>{assert(serviceMatches(undefined,'none'));assert(serviceMatches('','none'));assert(!serviceMatches('Mass','none'))});
+test('summary matches complete days with either service and keeps blank-only days separate',()=>{assert(summaryServiceMatches('Mass / Transferencia','Mass'));assert(summaryServiceMatches('Mass / Transferencia','Transferencia'));assert(!summaryServiceMatches('Mass','none'));assert(summaryServiceMatches('','none'));assert(!summaryServiceMatches('Paquetería','Mass'))});
+test('seven rotating services, historical aliases and new choices',()=>{assert.equal(SERVICES.length,7);for(const service of ['SPSA HD','MASS','Giddings','TPSA'])assert(validService(service));assert.equal(canonicalService('SPS Home Delivery'),'SPSA HD');assert(serviceMatches('Mass','MASS'));assert(serviceMatches('SPS Home Delivery','SPSA HD'));assert(serviceMatches('refrigereado','Refrigerado'));assert(!serviceMatches('Giddings','TPSA'));assert.equal(canonicalService(undefined),'')});

@@ -34,7 +34,11 @@ test('legacy entry and DNI exit share original day; concurrent duplicate is deni
  assert.equal((await getDoc(doc(d,'marks',dni+'_'+day()+'_entrada'))).data().userId,'legacy');
  await assertFails(mark(d,'new-device','entrada'));
  await assertFails(mark(d,'new-device','salida',{location:{status:'unavailable'}}));
- await assertSucceeds(mark(d,'new-device','salida'));await assertFails(mark(d,'new-device','salida'));
+ await assertFails(mark(d,'new-device','salida',{service:'Otro servicio'}));
+ await assertFails(mark(d,'new-device','salida',{service:''}));
+ await assertSucceeds(mark(d,'new-device','salida',{service:'Mass'}));await assertFails(mark(d,'new-device','salida'));
+ assert.equal((await getDoc(doc(d,'marks',dni+'_'+day()+'_entrada'))).data().service,undefined);
+ assert.equal((await getDoc(doc(d,'marks',dni+'_'+day()+'_salida'))).data().service,'Mass');
 });
 test('session expiry and roster baja revoke access, including existing session',async()=>{
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'workerSessions','expired'),{personnelId:dni,createdAt:Timestamp.fromMillis(Date.now()-13*3600000)}));
@@ -48,4 +52,17 @@ test('reapproval invalidates old sessions without losing approval for new sessio
  await env.withSecurityRulesDisabled(async c=>{await setDoc(doc(c.firestore(),'users','replacement'),{personnelId:dni,role:'trabajador',active:true,createdAt:Timestamp.now()});await updateDoc(doc(c.firestore(),'personnel',dni),{approvedUid:'replacement'});});
  await assertFails(getDoc(doc(db('fresh'),'workerPanels',dni)));
  const d=db('reapproved');await assertSucceeds(setDoc(doc(d,'workerSessions','reapproved'),{personnelId:dni,createdAt:serverTimestamp()}));await assertSucceeds(getDoc(doc(d,'workerPanels',dni)));
+});
+
+test('all seven current services allow marks without assigning a fixed service to personnel',async()=>{
+ const services=['SPSA HD','Transferencia','Refrigerado','MASS','Paquetería','Giddings','TPSA'];
+ for(const [i,service]of services.entries()){
+  const id=String(23456000+i),old='service-old-'+i,uid='service-new-'+i;
+  await env.withSecurityRulesDisabled(async c=>{await setDoc(doc(c.firestore(),'personnel',id),{...person,dni:id,approvedUid:old});await setDoc(doc(c.firestore(),'users',old),{role:'trabajador',active:true,personnelId:id,createdAt:Timestamp.fromMillis(0)})});
+  const client=db(uid);await assertSucceeds(setDoc(doc(client,'workerSessions',uid),{personnelId:id,createdAt:serverTimestamp()}));
+  const markId=id+'_'+day()+'_entrada',batch=writeBatch(client);
+  batch.set(doc(client,'marks',markId),{userId:uid,personnelId:id,displayName:person.displayName,type:'entrada',dayKey:day(),occurredAt:serverTimestamp(),scheduleStart:'06:10',scheduleEnd:null,graceMinutes:0,source:'web',service,location:{status:'captured',lat:-12,lng:-77,accuracyMeters:20}});
+  batch.set(doc(client,'audit','mark_'+markId),{action:'mark_attendance',actorId:uid,targetId:markId,at:serverTimestamp()});
+  await assertSucceeds(batch.commit());
+ }
 });

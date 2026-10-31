@@ -20,6 +20,9 @@
 .worker-notice { color: #12553b; background: #e8f7ef; }
 .worker-warning { color: #7a3b12; background: #fff3e7; }
 .worker-text-button { background: none; border: none; padding: 10px 0; color: #2567d9; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.worker-access-links { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 12px; }
+.worker-access-links > .worker-text-button { min-height: 44px; text-align: left; overflow-wrap: anywhere; }
+.worker-access-links > .worker-warning { margin: 0; }
 .worker-center { text-align: center; padding-top: 28px; padding-bottom: 35px; }
 .worker-center .worker-brand { justify-content: center; }
 .worker-status-icon { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 20px; background: #eff5ff; color: #2567d9; }

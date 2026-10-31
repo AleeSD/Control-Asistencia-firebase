@@ -1,4 +1,5 @@
 import type { Adjustment, Mark, Personnel, Profile } from "./types";
+import { canonicalService } from "./services";
 
 const TZ = "America/Lima";
 // Requested on 30/10: preserve earlier entries; use the new label prospectively.
@@ -30,7 +31,7 @@ export function enrichMark(mark: Mark): Mark {
 }
 
 export type AttendanceRow = {
-  id: string; date: string; name: string; dni: string; company: string;
+  id: string; date: string; name: string; dni: string; company: string; service: string;
   entry: string; exit: string; status: string; late: number | null; corrections: string;
 };
 
@@ -44,7 +45,7 @@ export function buildAttendanceSummary(marks: Mark[], adjustments: Adjustment[],
     const id = `${personId}_${date}`;
     if (!groups.has(id)) {
       const person = people.get(personId);
-      groups.set(id, { row: { id, date, name: name || person?.displayName || users.get(userId)?.displayName || "Persona sin nombre", dni: person?.dni || (personId === userId ? "" : personId), company: person?.companies.join("/") || "", entry: "Sin registro", exit: "Sin registro", status: "Sin registro", late: null, corrections: "—" } });
+      groups.set(id, { row: { id, date, name: name || person?.displayName || users.get(userId)?.displayName || "Persona sin nombre", dni: person?.dni || (personId === userId ? "" : personId), company: person?.companies.join("/") || "", service: "", entry: "Sin registro", exit: "Sin registro", status: "Sin registro", late: null, corrections: "—" } });
     }
     return groups.get(id)!;
   };
@@ -67,6 +68,7 @@ export function buildAttendanceSummary(marks: Mark[], adjustments: Adjustment[],
   for (const group of groups.values()) {
     const { row, entry, exit, entryCorrection, exitCorrection } = group;
     const entryAt = entryCorrection?.correctedAt ?? entry?.occurredAt;
+    row.service = [...new Set([canonicalService(entry?.service), canonicalService(exit?.service)].filter(Boolean))].join(" / ");
     row.entry = attendanceTime(entryAt?.toDate());
     row.exit = attendanceTime((exitCorrection?.correctedAt ?? exit?.occurredAt)?.toDate());
     row.corrections = [entryCorrection ? "Entrada" : "", exitCorrection ? "Salida" : ""].filter(Boolean).join(" y ") || "—";
